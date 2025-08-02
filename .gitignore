@@ -144,3 +144,6 @@ Thumbs.db
 # Database
 *.db
 *.sqlite3 
+
+#venvs
+venv*/

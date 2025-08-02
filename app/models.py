@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float
+from sqlalchemy import Column, String, Integer, Float, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from .database import Base
@@ -13,9 +13,11 @@ class Provider(Base):
     provider_name = Column(String, nullable=False)
     provider_city = Column(String, nullable=False)
     provider_state = Column(String, nullable=False)
-    provider_zip_code = Column(String, nullable=False)
-    ms_drg_definition = Column(String, nullable=False)
+    provider_zip_code = Column(Integer, nullable=False, index=True)
+    ms_drg_definition = Column(Integer, nullable=False)
     total_discharges = Column(Integer, nullable=False)
-    average_covered_charges = Column(Float, nullable=False)
-    average_total_payments = Column(Float, nullable=False)
-    average_medicare_payments = Column(Float, nullable=False) 
+    average_covered_charges = Column(Numeric(precision=18, scale=2), nullable=False)
+    average_total_payments = Column(Numeric(precision=18, scale=2), nullable=False)
+    average_medicare_payments = Column(Numeric(precision=18, scale=2), nullable=False)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True) 
