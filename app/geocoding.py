@@ -50,10 +50,12 @@ def geocode_zip_code(zip_code: str) -> tuple:
     try:
         zip_data = load_zip_data()
         if zip_data.empty:
+            print("⚠️  Zip code data is empty")
             return None, None
         
         # Clean the zip code and always use string for matching
         zip_code_str = str(zip_code).zfill(5)
+        print(f"🔍 Looking up coordinates for zip code: {zip_code_str}")
         
         # Try to find a match by zip code (as string)
         matches = zip_data[zip_data['postal code'] == zip_code_str]
@@ -62,6 +64,7 @@ def geocode_zip_code(zip_code: str) -> tuple:
             # Take the first match
             lat = float(matches.iloc[0]['latitude'])
             lng = float(matches.iloc[0]['longitude'])
+            print(f"✅ Found coordinates for {zip_code_str}: {lat}, {lng}")
             return lat, lng
         else:
             print(f"⚠️  Could not find coordinates for zip code: {zip_code_str}")

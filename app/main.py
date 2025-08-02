@@ -84,10 +84,26 @@ async def get_providers(
 async def ask_question(request: AskRequest):
     """Ask questions about healthcare providers using AI"""
     try:
+        print(f"🔍 Received question: {request.question}")
+        
+        # Validate request
+        if not request.question or not request.question.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Question cannot be empty"
+            )
+        
+        # Call OpenAI service
+        print("📝 Calling OpenAI service...")
         answer = await openai_service.ask(request.question)
+        print(f"✅ Generated answer: {answer}")
+        
         return AskResponse(answer=answer)
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
-        print(f"Error in ask endpoint: {e}")
+        print(f"❌ Error in ask endpoint: {e}")
         raise HTTPException(
             status_code=500, 
             detail="I'm having trouble processing your question right now. Please try again later."
