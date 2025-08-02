@@ -5,14 +5,18 @@ import uvicorn
 
 from .database import get_db, engine
 from .models import Provider, Base
-from .schemas import Provider as ProviderSchema
+from .schemas import Provider as ProviderSchema, AskRequest, AskResponse
 from .etl import run_etl
 from .geocoding import geocode_zip_code_nominatim, is_within_radius
+from .openai_service import OpenAIService
 
 # Create tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Providers API", description="API for managing healthcare providers data")
+
+# Initialize OpenAI service
+openai_service = OpenAIService()
 
 @app.on_event("startup")
 async def startup_event():
@@ -75,6 +79,19 @@ async def get_providers(
     providers = sorted(providers, key=lambda p: p.average_total_payments)
     
     return providers
+
+@app.post("/ask", response_model=AskResponse)
+async def ask_question(request: AskRequest):
+    """Ask questions about healthcare providers using AI"""
+    try:
+        answer = await openai_service.ask(request.question)
+        return AskResponse(answer=answer)
+    except Exception as e:
+        print(f"Error in ask endpoint: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="I'm having trouble processing your question right now. Please try again later."
+        )
 
 @app.get("/health")
 async def health_check():

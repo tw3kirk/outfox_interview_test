@@ -10,27 +10,128 @@ A FastAPI backend application that provides healthcare provider data through a R
 - ETL process to populate database from CSV
 - Docker and Docker Compose support
 - Local development setup with health checks
+- **AI-powered query endpoint using OpenAI GPT-4o**
+- **RAG (Retrieval-Augmented Generation) with embeddings**
+- **Smart filtering for healthcare-related queries**
 
 ## API Endpoints
 
 - `GET /` - Root endpoint
-- `GET /providers` - Get all providers
+- `GET /providers` - Get all providers with optional filtering by DRG, zip code, and radius
+- `POST /ask` - **AI-powered healthcare questions endpoint**
 - `GET /health` - Health check
+
+### Provider Search Endpoint
+
+The `/providers` endpoint supports advanced filtering:
+
+```bash
+# Get all providers
+curl "http://localhost:8000/providers"
+
+# Filter by DRG (Diagnosis Related Group)
+curl "http://localhost:8000/providers?drg=470"
+
+# Filter by location and radius (requires all three parameters)
+curl "http://localhost:8000/providers?drg=470&zip=10001&radius_km=40"
+```
+
+**Query Parameters:**
+- `drg` (optional): Diagnosis Related Group code
+- `zip` (optional): Zip code to search from  
+- `radius_km` (optional): Radius in kilometers from the zip code
+
+### AI-Powered Ask Endpoint
+
+The `/ask` endpoint allows natural language queries about healthcare providers using OpenAI GPT-4o with RAG (Retrieval-Augmented Generation).
+
+**Endpoint:** `POST /ask`
+
+**Request Body:**
+```json
+{
+  "question": "Your healthcare-related question here"
+}
+```
+
+**Response:**
+```json
+{
+  "answer": "AI-generated response with relevant provider information"
+}
+```
+
+#### Healthcare Query Examples
+
+**Example 1: Best rated providers for procedures**
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Who has the best ratings for heart surgery near 10032?"}'
+```
+
+**Example 2: Cost comparisons**
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the costs for hospital procedures in New York?"}'
+```
+
+**Example 3: Provider recommendations**
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Find me the most affordable cardiac surgery providers with good ratings"}'
+```
+
+**Example 4: Location-based queries**
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Which hospitals in California have the highest star ratings?"}'
+```
+
+#### Non-Healthcare Queries
+
+Non-healthcare related questions are automatically filtered out:
+
+```bash
+curl -X POST "http://localhost:8000/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How is the weather today?"}'
+
+# Response:
+{
+  "answer": "I can only help with hospital pricing and quality information. Please ask about medical procedures, costs or hospital ratings."
+}
+```
+
+#### How the AI Works
+
+1. **Query Filtering**: Uses AI to determine if questions are healthcare-related
+2. **RAG with Embeddings**: Converts queries and provider data to embeddings for semantic matching
+3. **Context Retrieval**: Finds the most relevant providers based on query similarity
+4. **AI Response**: Uses GPT-4o to generate helpful responses with provider context
+5. **Fallback Mode**: Works even without OpenAI API key using keyword matching
 
 ## Database Schema
 
 The `providers` table contains the following columns:
 
-- `provider_id` (String, Primary Key)
-- `provider_name` (String)
-- `provider_city` (String)
-- `provider_state` (String)
-- `provider_zip_code` (String)
-- `ms_drg_definition` (String)
-- `total_discharges` (Integer)
-- `average_covered_charges` (Float)
-- `average_total_payments` (Float)
-- `average_medicare_payments` (Float)
+- `id` (UUID, Primary Key) - Unique identifier for each record
+- `provider_id` (String, Indexed) - Provider identifier from source data
+- `provider_name` (String) - Name of the healthcare provider
+- `provider_city` (String) - City where provider is located
+- `provider_state` (String) - State where provider is located
+- `provider_zip_code` (Integer, Indexed) - ZIP code of provider location
+- `ms_drg_definition` (Integer) - Medicare Severity Diagnosis Related Group code
+- `total_discharges` (Integer) - Number of patients discharged
+- `average_covered_charges` (Decimal) - Average amount billed to insurance
+- `average_total_payments` (Decimal) - Average total payments received
+- `average_medicare_payments` (Decimal) - Average Medicare payments received
+- `latitude` (Float, Nullable) - Geographic latitude for location-based queries
+- `longitude` (Float, Nullable) - Geographic longitude for location-based queries
+- `star_rating` (Integer) - Quality rating from 1-10 (higher is better)
 
 ## CSV Data Mapping
 
@@ -162,6 +263,54 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO postgres;
 psql -h localhost -U postgres -d providers -c "SELECT 1;"
 ```
 
+### OpenAI API Setup (Required for AI Features)
+
+To use the `/ask` endpoint with full AI capabilities, you need to set up an OpenAI API key:
+
+#### 1. Get an OpenAI API Key
+
+1. Visit [OpenAI's website](https://platform.openai.com/)
+2. Sign up or log in to your account
+3. Navigate to the [API Keys page](https://platform.openai.com/api-keys)
+4. Click "Create new secret key"
+5. Copy the generated API key (keep it secure!)
+
+#### 2. Create Environment Configuration
+
+Create a `.env` file in the project root directory:
+
+```bash
+# Create .env file
+touch .env
+```
+
+Add your OpenAI API key to the `.env` file:
+
+```env
+# OpenAI API Configuration
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Database Configuration (for local development)
+DATABASE_URL=postgresql://postgres:password@localhost:5432/providers
+```
+
+**Important Notes:**
+- Replace `your_openai_api_key_here` with your actual OpenAI API key
+- The `.env` file is already in `.gitignore` to keep your API key secure
+- Never commit your actual API key to version control
+
+#### 3. Fallback Mode
+
+The application works even without an OpenAI API key:
+- **With API key**: Full AI capabilities with GPT-4o and embeddings
+- **Without API key**: Basic keyword matching and structured responses
+
+You'll see this warning if no API key is configured:
+```
+⚠️  OPENAI_API_KEY not found in environment variables
+⚠️  Please create a .env file with OPENAI_API_KEY=your_api_key_here
+```
+
 ### Installation
 
 1. Clone the repository:
@@ -210,7 +359,13 @@ Once the application is running, you can access:
 
 ### Using Docker Compose
 
-1. Build and run the application:
+1. **For AI features, create a `.env` file first:**
+```bash
+# Create .env file with your OpenAI API key
+echo "OPENAI_API_KEY=your_openai_api_key_here" > .env
+```
+
+2. Build and run the application:
 ```bash
 docker compose up --build
 ```
@@ -220,8 +375,9 @@ This will:
 - Build and start the FastAPI application container
 - Run the ETL process on startup
 - Make the API available on http://localhost:8000
+- Load environment variables from `.env` file (including OpenAI API key)
 
-2. Stop the application:
+3. Stop the application:
 ```bash
 docker compose down
 ```
@@ -248,10 +404,16 @@ outfox_interview_test/
 │   ├── database.py      # Database configuration
 │   ├── models.py        # SQLAlchemy models
 │   ├── schemas.py       # Pydantic schemas
-│   └── etl.py          # ETL process
-├── MUP_INP_RY24_P03_V10_DY22_PrvSvc.csv
-├── requirements.txt
-├── run_local.py
+│   ├── etl.py          # ETL process
+│   ├── openai_service.py # AI service with RAG functionality
+│   └── geocoding.py     # Geocoding utilities
+├── MUP_INP_RY24_P03_V10_DY22_PrvSvc.csv  # Source healthcare data
+├── USZipsWithLatLon_20231227.csv          # ZIP code geocoding data
+├── .env.example         # Environment variables template
+├── requirements.txt     # Python dependencies
+├── run_local.py        # Local development runner
+├── run_etl.py          # Manual ETL runner
+├── troubleshoot_db.py  # Database troubleshooting utility
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md
@@ -259,7 +421,16 @@ outfox_interview_test/
 
 ## Environment Variables
 
+The application uses environment variables for configuration. Create a `.env` file with:
+
+- `OPENAI_API_KEY`: Your OpenAI API key for AI features (optional but recommended)
 - `DATABASE_URL`: PostgreSQL connection string (default: postgresql://postgres:password@localhost:5432/providers)
+
+**Example `.env` file:**
+```env
+OPENAI_API_KEY=sk-your-actual-openai-api-key-here
+DATABASE_URL=postgresql://postgres:password@localhost:5432/providers
+```
 
 ## Troubleshooting
 

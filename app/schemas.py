@@ -25,4 +25,10 @@ class Provider(ProviderBase):
         from_attributes = True
 
 class ProviderList(BaseModel):
-    providers: List[Provider] 
+    providers: List[Provider]
+
+class AskRequest(BaseModel):
+    question: str
+
+class AskResponse(BaseModel):
+    answer: str 

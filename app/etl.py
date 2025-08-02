@@ -133,6 +133,12 @@ def load_csv_data():
                 city = str(row['Rndrng_Prvdr_City']).strip()
                 state = str(row['Rndrng_Prvdr_State_Abrvtn']).strip()
                 zip_code_raw = str(row['Rndrng_Prvdr_Zip5']).strip()
+                # Check for NaN or non-numeric zip code
+                if pd.isna(zip_code_raw) or not zip_code_raw.isdigit():
+                    print(f"⚠️  Skipping row {index+1}: Missing or invalid zip code '{zip_code_raw}'")
+                    error_count += 1
+                    continue
+
                 zip_code_str = zip_code_raw.zfill(5)
                 try:
                     zip_code = int(zip_code_raw)

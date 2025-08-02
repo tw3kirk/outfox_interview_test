@@ -26,8 +26,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://postgres:password@db:5432/providers
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ./MUP_INP_RY24_P03_V10_DY22_PrvSvc.csv:/app/MUP_INP_RY24_P03_V10_DY22_PrvSvc.csv
+      - ./USZipsWithLatLon_20231227.csv:/app/USZipsWithLatLon_20231227.csv
 
 volumes:
   postgres_data: 
