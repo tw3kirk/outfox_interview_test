@@ -16,6 +16,7 @@ class ProviderBase(BaseModel):
     average_medicare_payments: Decimal
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    star_rating: int
 
 class Provider(ProviderBase):
     id: UUID

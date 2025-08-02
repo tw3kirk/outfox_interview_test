@@ -20,4 +20,5 @@ class Provider(Base):
     average_total_payments = Column(Numeric(precision=18, scale=2), nullable=False)
     average_medicare_payments = Column(Numeric(precision=18, scale=2), nullable=False)
     latitude = Column(Float, nullable=True)
-    longitude = Column(Float, nullable=True) 
+    longitude = Column(Float, nullable=True)
+    star_rating = Column(Integer, nullable=False) 

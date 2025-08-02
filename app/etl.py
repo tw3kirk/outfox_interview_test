@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import random
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
@@ -169,7 +170,8 @@ def load_csv_data():
                     average_total_payments=avg_total,
                     average_medicare_payments=avg_medicare,
                     latitude=latitude,
-                    longitude=longitude
+                    longitude=longitude,
+                    star_rating=random.randint(1, 10)
                 )
                 
                 db.add(provider)
