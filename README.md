@@ -36,6 +36,8 @@ curl "http://localhost:8000/providers?drg=470"
 curl "http://localhost:8000/providers?drg=470&zip=10001&radius_km=40"
 ```
 
+![hippo](https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExc2VncXA1dHFlNnhubHgzMndkMnM3MGhueTc5Z2RxeDRqcTVmNHpueCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/hVrchVPAwcuk9movcT/giphy.gif)
+
 **Query Parameters:**
 - `drg` (optional): Diagnosis Related Group code
 - `zip` (optional): Zip code to search from  
