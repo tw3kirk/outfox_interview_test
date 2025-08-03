@@ -117,168 +117,106 @@ class OpenAIService:
         return embedding
 
     def get_relevant_providers(self, query: str, limit: int = 10) -> List[Provider]:
-        """Get providers most relevant to the query using database filtering, geocoding, and radius search"""
+        """
+        Fast & reliable provider retrieval.
+        1. Parse possible `drg`, `zip`, `radius_km` tokens from the question.
+        2. Call the already-existing /providers endpoint (same process, no network hop)
+           so we inherit all the geocoding / radius logic that is known to work.
+        3. Return at most `limit` rows (already sorted by cost in the router).
+        """
+        # ---------- extract tokens ----------
+        query_lc = query.lower()
+        
+        # Extract DRG codes (2-3 digits)
+        drg = None
+        for word in query_lc.split():
+            if word.isdigit() and len(word) <= 3:
+                drg = int(word)
+                break
+        
+        # Extract zip codes (4-5 digits) - more robust extraction
+        zip_code = None
+        import re
+        zip_pattern = r'\b\d{4,5}\b'  # Match 4-5 digit numbers as word boundaries
+        zip_matches = re.findall(zip_pattern, query)
+        if zip_matches:
+            zip_code = int(zip_matches[0])
+        
+        # Extract radius (default 40km)
+        radius_km = 40.0
+        radius_keywords = ['km', 'kilometer', 'kilometers', 'radius', 'within']
+        for word in query_lc.split():
+            if word.replace('.', '').isdigit() and any(k in query_lc for k in radius_keywords):
+                radius_km = float(word)
+                break
+
+        print(f"🔍 Extracted from query '{query}': drg={drg}, zip={zip_code}, radius_km={radius_km}")
+
+        # ---------- delegate to existing SQL logic ----------
+        # Use direct database query instead of TestClient to avoid circular imports
         db = SessionLocal()
         try:
-            # Extract potential filters from the query
-            query_lower = query.lower()
+            # Build query similar to /providers endpoint
+            query = db.query(Provider)
             
-            # Try to extract DRG code from query
-            drg_filter = None
-            for word in query_lower.split():
-                if word.isdigit() and len(word) <= 3:  # DRG codes are typically 2-3 digits
-                    drg_filter = int(word)
-                    break
+            # Filter by DRG if provided
+            if drg is not None:
+                query = query.filter(Provider.ms_drg_definition == drg)
+                print(f"🔍 Filtering by DRG: {drg}")
             
-            # Try to extract zip code from query
-            zip_filter = None
-            for word in query_lower.split():
-                if word.isdigit() and (len(word) == 4 or len(word) == 5):  # Zip codes can be 4 or 5 digits
-                    zip_filter = int(word)
-                    break
+            # Get all providers that match the DRG filter
+            providers = query.all()
+            print(f"📊 Total providers in database: {len(providers)}")
             
-            # Build database query with filters
-            db_query = db.query(Provider)
-            
-            if drg_filter:
-                db_query = db_query.filter(Provider.ms_drg_definition == drg_filter)
-            
-            # Get filtered providers
-            providers = db_query.all()
-            
-            # If no providers found with DRG filter, try broader search
-            if not providers:
-                providers = db.query(Provider).all()
-            
-            # If still no providers, return empty list
-            if not providers:
-                return []
-            
-            # Apply radius filtering if zip code is found
-            if zip_filter:
-                # Geocode the input zip code
-                zip_code_str = str(zip_filter).zfill(5)
-                print(f"🔍 Geocoding zip code: {zip_code_str}")
-                zip_lat, zip_lon = geocode_zip_code(zip_code_str)
+            # Filter by zip code and radius if both are provided
+            if zip_code is not None and radius_km is not None:
+                print(f"🔍 Filtering by zip code: {zip_code} with radius: {radius_km}km")
+                # Geocode the input zip code using Nominatim
+                from .geocoding import geocode_zip_code_nominatim, is_within_radius
+                zip_lat, zip_lon = geocode_zip_code_nominatim(str(zip_code).zfill(5))
                 
-                if zip_lat and zip_lon:
-                    print(f"✅ Geocoded zip {zip_code_str} to coordinates: {zip_lat}, {zip_lon}")
-                    
-                    # Default radius of 40km if not specified in query
-                    radius_km = 40.0
-                    
-                    # Check if radius is mentioned in query
-                    radius_keywords = ['within', 'radius', 'km', 'kilometers', 'miles']
-                    for word in query_lower.split():
-                        if word.isdigit() and any(keyword in query_lower for keyword in radius_keywords):
-                            radius_km = float(word)
-                            break
-                    
-                    print(f"📍 Using radius: {radius_km}km")
-                    print(f"📊 Total providers before radius filtering: {len(providers)}")
-                    
-                    # Filter providers by distance
-                    filtered_providers = []
-                    for provider in providers:
-                        # Skip providers without coordinates
-                        if provider.latitude is None or provider.longitude is None:
-                            print(f"⚠️  Provider {provider.provider_name} ({provider.provider_city}, {provider.provider_state}) has no coordinates")
-                            continue
-                        
-                        # Check if provider is within radius
-                        try:
-                            within_radius = is_within_radius(
-                                zip_lat, zip_lon, 
-                                provider.latitude, provider.longitude, 
-                                radius_km
-                            )
-                            if within_radius:
-                                filtered_providers.append(provider)
-                                print(f"✅ Provider {provider.provider_name} ({provider.provider_city}, {provider.provider_state}) is within radius")
-                            else:
-                                print(f"❌ Provider {provider.provider_name} ({provider.provider_city}, {provider.provider_state}) is outside radius")
-                        except Exception as e:
-                            print(f"⚠️  Error checking radius for provider {provider.provider_name}: {e}")
-                    
-                    print(f"📊 Providers after radius filtering: {len(filtered_providers)}")
-                    
-                    # If no providers found within radius, return empty list
-                    if not filtered_providers:
-                        print("⚠️  No providers found within the specified radius")
-                        return []
-                    
-                    # Score only providers within radius
-                    keyword_matches = []
-                    for provider in filtered_providers:
-                        score = 0
-                        
-                        # Check for DRG matches
-                        if drg_filter and provider.ms_drg_definition == drg_filter:
-                            score += 10
-                        
-                        # Check for zip code matches
-                        if zip_filter and provider.provider_zip_code == zip_filter:
-                            score += 30  # Exact zip match is very important
-                        
-                        # Check for location matches
-                        if provider.provider_city.lower() in query_lower or provider.provider_state.lower() in query_lower:
-                            score += 15  # City/state match is important
-                        
-                        # Check for provider name matches
-                        if any(word.lower() in provider.provider_name.lower() for word in query.split()):
-                            score += 5
-                        
-                        # Check for rating-related keywords
-                        if any(word in query_lower for word in ['rating', 'star', 'best', 'top']):
-                            score += provider.star_rating * 0.2
-                        
-                        # Higher star rating gets small bonus
-                        score += provider.star_rating * 0.05
-                        
-                        # All providers in this list are within radius, so they all get the area bonus
-                        score += 25
-                        
-                        keyword_matches.append((provider, score))
-                    
-                    # Sort by score and star rating
-                    keyword_matches.sort(key=lambda x: (x[1], x[0].star_rating), reverse=True)
-                    return [provider for provider, score in keyword_matches[:limit]]
-                else:
-                    print(f"⚠️  Could not geocode zip code: {zip_filter}")
+                if zip_lat is None or zip_lon is None:
+                    print(f"⚠️  Could not geocode zip code: {zip_code}")
                     return []
+                
+                print(f"✅ Geocoded zip {zip_code} to coordinates: {zip_lat}, {zip_lon}")
+                
+                # Filter providers by distance
+                filtered_providers = []
+                for provider in providers:
+                    # Skip providers without coordinates
+                    if provider.latitude is None or provider.longitude is None:
+                        print(f"⚠️  Provider {provider.provider_name} has no coordinates")
+                        continue
+                    
+                    # Check if provider is within radius
+                    if is_within_radius(
+                        zip_lat, zip_lon, 
+                        provider.latitude, provider.longitude, 
+                        radius_km
+                    ):
+                        filtered_providers.append(provider)
+                        print(f"✅ Provider {provider.provider_name} is within radius")
+                    else:
+                        print(f"❌ Provider {provider.provider_name} is outside radius")
+                
+                providers = filtered_providers
+                print(f"📊 Providers after radius filtering: {len(providers)}")
             
-            # If no zip code provided, score all providers
-            keyword_matches = []
+            # Sort by average_total_payments (ascending)
+            providers = sorted(providers, key=lambda p: p.average_total_payments)
+            
+            # Limit results
+            providers = providers[:limit]
+            
+            print(f"✅ Got {len(providers)} providers from database query")
             for provider in providers:
-                score = 0
-                
-                # Check for DRG matches
-                if drg_filter and provider.ms_drg_definition == drg_filter:
-                    score += 10
-                
-                # Check for location matches
-                if provider.provider_city.lower() in query_lower or provider.provider_state.lower() in query_lower:
-                    score += 15
-                
-                # Check for provider name matches
-                if any(word.lower() in provider.provider_name.lower() for word in query.split()):
-                    score += 5
-                
-                # Check for rating-related keywords
-                if any(word in query_lower for word in ['rating', 'star', 'best', 'top']):
-                    score += provider.star_rating * 0.2
-                
-                # Higher star rating gets small bonus
-                score += provider.star_rating * 0.05
-                
-                keyword_matches.append((provider, score))
+                print(f"   - {provider.provider_name} ({provider.provider_city}, {provider.provider_state}) - Rating: {provider.star_rating}/10")
             
-            # Sort by score and star rating
-            keyword_matches.sort(key=lambda x: (x[1], x[0].star_rating), reverse=True)
-            return [provider for provider, score in keyword_matches[:limit]]
+            return providers
             
         except Exception as e:
-            print(f"Error getting relevant providers: {e}")
+            print(f"⚠️  Error in database query: {e}")
             return []
         finally:
             db.close()
@@ -291,14 +229,12 @@ class OpenAIService:
         # Debug: Print the providers being used
         print(f"🔍 Generating response for query: {query}")
         print(f"📊 Number of relevant providers: {len(relevant_providers)}")
-        for i, provider in enumerate(relevant_providers[:3]):
+        for i, provider in enumerate(relevant_providers):
             print(f"   {i+1}. {provider.provider_name} ({provider.provider_city}, {provider.provider_state}) - Rating: {provider.star_rating}/10")
         
         # Prepare a concise context from relevant providers
         context = "Relevant providers:\n"
-        if zip_filter:
-            context += f"Showing providers near zip code {str(zip_filter).zfill(5)} within {radius_km}km radius:\n"
-        for i, provider in enumerate(relevant_providers[:5], 1):  # Limit to top 5 providers
+        for i, provider in enumerate(relevant_providers[:100], 1):  # Limit to top 100 providers
             context += f"{i}. {provider.provider_name} ({provider.provider_city}, {provider.provider_state}, {str(provider.provider_zip_code).zfill(5)})\n"
             context += f"   DRG: {provider.ms_drg_definition}, Rating: {provider.star_rating}/10\n"
             context += f"   Avg Total Payment: ${provider.average_total_payments}\n"
@@ -311,11 +247,7 @@ class OpenAIService:
         You are a helpful healthcare information assistant. Provide concise, accurate information about providers based on the data provided.
         Focus on ratings, costs, and location information. Keep responses brief and informative.
         
-        Important rules:
-        1. Only mention providers that are in the provided context.
-        2. If a location is mentioned in the query, only discuss providers near that location.
-        3. If no providers are found near a location, clearly state that no providers were found in that area.
-        4. Never mention providers from other locations as alternatives.
+        If the user provides medical condition data, such as a DRG code, you should use that to filter the providers based on the relevant DRG code.
         """
         
         try:
@@ -325,8 +257,8 @@ class OpenAIService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
                 ],
-                max_tokens=300,  # Reduced from 500
-                temperature=0.5   # Reduced from 0.7
+                max_tokens=1000,  # Reduced from 500
+                temperature=0.7   # Reduced from 0.7
             )
             
             return response.choices[0].message.content.strip()
